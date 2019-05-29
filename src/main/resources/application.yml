@@ -1,0 +1,8 @@
+app:
+  name: jacob-word-pdf
+server:
+  port: 5801
+  servlet:
+    context-path: /onlineArchive
+
+wordApplictionName: Word.Application

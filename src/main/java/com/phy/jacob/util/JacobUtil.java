@@ -1,16 +1,19 @@
-package com.phy.jacob;
+package com.phy.jacob.util;
 
 import com.jacob.activeX.ActiveXComponent;
 import com.jacob.com.Dispatch;
 import com.jacob.com.Variant;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * jacob工具类
- * @author huang
- * @date 2018年1月26日
+ * @author Ryan.Peng
+ * @date 2019年5月29日
  */
 public class JacobUtil {
     //各启动方式宏
@@ -144,7 +147,7 @@ public class JacobUtil {
                 app.invoke("Quit", new Variant[] {});
                 app = null;
             }
-            System.out.println("JacobUtil.class : 文档关闭  " + filePath);
+//            System.out.println("JacobUtil.class : 文档关闭  " + filePath);
         } catch (Exception e) {
             System.err.println("关闭ActiveXComponent异常");
             e.printStackTrace();
@@ -159,12 +162,27 @@ public class JacobUtil {
         this.visible = visible;
     }
     public static void main(String[] args) {
-        JacobUtil jacob = new JacobUtil();
-        jacob.open("C:\\Users\\pengh\\Desktop\\签章doc转pdf\\v9.doc", JacobUtil.WPS_WPS);
-        //默认同路径 也可自定义
-        jacob.toPDF();
-        jacob.close();
+        File templateDir=new File("Z:\\template");
+        List<File> files= listFiles(templateDir);
+        for (File f : files) {
+            JacobUtil jacob = new JacobUtil();
+            jacob.open(f.getAbsolutePath(), JacobUtil.WPS_WPS);
+            //默认同路径 也可自定义
+            jacob.toPDF();
+            jacob.close();
+        }
     }
 
-
+    public static List<File> listFiles(File directory) {
+        ArrayList list = new ArrayList(1000);
+        File[] files = directory.listFiles();
+        for (File file : files) {
+            if (file.isDirectory()) {
+                list.addAll(listFiles(file));
+            } else {
+                list.add(file);
+            }
+        }
+        return list;
+    }
 }
