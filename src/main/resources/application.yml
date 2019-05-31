@@ -6,3 +6,4 @@ server:
     context-path: /onlineArchive
 
 wordApplictionName: Word.Application
+convertWord2PdfTempPath: Y:/tmp

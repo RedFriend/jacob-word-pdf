@@ -4,13 +4,13 @@ import com.jacob.activeX.ActiveXComponent;
 import com.jacob.com.ComThread;
 import com.jacob.com.Dispatch;
 import com.jacob.com.Variant;
+import org.springframework.util.FileCopyUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.stream.Collectors;
 
 /**
  * jacob工具类
@@ -31,6 +31,7 @@ public class JacobMultiUtil {
     public final static String WPS_DPS = "KWPP.Application";
     private static ConcurrentLinkedQueue<ActiveXComponent> appQueue = new ConcurrentLinkedQueue<>();
     private static ConcurrentLinkedQueue<ConvertedTarget> fileQueue = new ConcurrentLinkedQueue<>();
+    private static ConcurrentLinkedQueue<ConvertedTarget> garbageQueue = new ConcurrentLinkedQueue<>();
     /**
      * 映射对应文档的文档对象类型
      **/
@@ -61,18 +62,46 @@ public class JacobMultiUtil {
     public static void init(String type) {
         try {
             if (appQueue.isEmpty()) {
-//                String cmd = "taskkill /F /IM WPS.EXE";
-                String cmd = "taskkill /F /IM WINWORD.EXE";
+                System.out.println("正在初始化转换程序...");
+                System.out.println("结束操作系统Offince进程");
+                String cmd = "taskkill /F /IM WPS.EXE";
+                String cmd2 = "taskkill /F /IM WINWORD.EXE";
                 Runtime.getRuntime().exec(cmd);
+                Runtime.getRuntime().exec(cmd2);
                 Thread.sleep(200);
                 int processorNum = Runtime.getRuntime().availableProcessors();
+                System.out.println("启用多线程支持");
                 ComThread.InitMTA();
                 for (int i = 0; i < processorNum; i++) {
-                    new Thread(new JacobMultiUtil.JacobThread(fileQueue, appQueue, type), "Jacob转换线程-" + (i + 1)).start();
+                    new Thread(new JacobMultiUtil.JacobThread(fileQueue, appQueue, type), "Converter - " + (i + 1)).start();
+                    System.out.println("创建线程:" + "Converter - " + (i + 1));
                 }
+                System.out.println("创建临时文件清理进程");
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        while (true) {
+                            if (!garbageQueue.isEmpty()) {
+                                int i = 1;
+                                for (ConvertedTarget ct : garbageQueue) {
+                                    ct.getInputFile().delete();
+                                    ct.getOutputFile().delete();
+                                    i++;
+                                }
+                                System.out.println("本次清理了临时文件个数:" + 2*i);
+                            }
+                            try {
+                                Thread.sleep(30 * 60 * 1000);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                }).start();
             }
         } catch (Exception e) {
             System.err.println("初始化Jacob进程错误");
+            e.printStackTrace();
         }
     }
 
@@ -86,21 +115,23 @@ public class JacobMultiUtil {
             }
             ComThread.Release();
             String cmd = "taskkill /F /IM WPS.EXE";
+            String cmd2 = "taskkill /F /IM WINWORD.EXE";
             Runtime.getRuntime().exec(cmd);
+            Runtime.getRuntime().exec(cmd2);
         } catch (IOException e) {
             System.err.println("清理Jacob进程错误");
+            e.printStackTrace();
         }
     }
 
     public static void main(String[] args) throws Exception {
         JacobMultiUtil.init(WPS_WPS);
-        File templateDir = new File("Z:\\template");
-        List<File> files = listFiles(templateDir).stream().filter(file -> file.getName().endsWith(".doc")).collect(Collectors.toList());
+        File templateDir = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.doc");
+        File templateDir2 = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.pdf");
+//        List<File> files = listFiles(templateDir).stream().filter(file -> file.getName().endsWith(".doc")).collect(Collectors.toList());
         List<ConvertedTarget> convertedTargets = new ArrayList<>();
-        for (File file : files) {
-            ConvertedTarget ct = new ConvertedTarget(file);
-            convertedTargets.add(ct);
-        }
+        ConvertedTarget ct = new ConvertedTarget(templateDir, templateDir2);
+        convertedTargets.add(ct);
         JacobMultiUtil.fileQueue.addAll(convertedTargets);
     }
 
@@ -151,6 +182,22 @@ public class JacobMultiUtil {
         return result;
     }
 
+    public static ConcurrentLinkedQueue<ActiveXComponent> getAppQueue() {
+        return appQueue;
+    }
+
+    public static void setAppQueue(ConcurrentLinkedQueue<ActiveXComponent> appQueue) {
+        JacobMultiUtil.appQueue = appQueue;
+    }
+
+    public static ConcurrentLinkedQueue<ConvertedTarget> getFileQueue() {
+        return fileQueue;
+    }
+
+    public static void setFileQueue(ConcurrentLinkedQueue<ConvertedTarget> fileQueue) {
+        JacobMultiUtil.fileQueue = fileQueue;
+    }
+
     public static class ConvertedTarget {
         //标识该文件已被处理,并通知线程
         private CountDownLatch countDownLatch = new CountDownLatch(1);
@@ -158,19 +205,13 @@ public class JacobMultiUtil {
         private File outputFile;
         private String base64File;
         private byte[] byteFile;
-
-        public CountDownLatch getCountDownLatch() {
-            return countDownLatch;
-        }
-
-        public void setCountDownLatch(CountDownLatch countDownLatch) {
-            this.countDownLatch = countDownLatch;
-        }
+        private int tryCount;
 
         public ConvertedTarget(File inputFile) {
             this.inputFile = inputFile;
         }
-        public ConvertedTarget(File inputFile,File outputFile) {
+
+        public ConvertedTarget(File inputFile, File outputFile) {
             this.inputFile = inputFile;
             this.outputFile = outputFile;
         }
@@ -181,6 +222,22 @@ public class JacobMultiUtil {
 
         public ConvertedTarget(byte[] byteFile) {
             this.byteFile = byteFile;
+        }
+
+        public int getTryCount() {
+            return tryCount;
+        }
+
+        public void setTryCount(int tryCount) {
+            this.tryCount = tryCount;
+        }
+
+        public CountDownLatch getCountDownLatch() {
+            return countDownLatch;
+        }
+
+        public void setCountDownLatch(CountDownLatch countDownLatch) {
+            this.countDownLatch = countDownLatch;
         }
 
         public File getInputFile() {
@@ -242,50 +299,44 @@ public class JacobMultiUtil {
                 ConvertedTarget f = files.poll();
                 try {
                     if (f != null) {
-                        long st=System.currentTimeMillis();
+                        long st = System.currentTimeMillis();
                         filePath = f.getInputFile().getAbsolutePath();
                         Dispatch document = Dispatch.call(documents, "Open", filePath).toDispatch();
                         String outFilePath = filePath.substring(0, filePath.lastIndexOf(".")) + ".pdf";
                         Dispatch.call(document, "SaveAs", outFilePath, new Variant(pdfMacro.get(type)));
                         Dispatch.call(document, "Close", false);
-                        System.out.println(Thread.currentThread().getName() + " PDF转换成功,文件位置:" + outFilePath);
-                        File outputFile=new File(outFilePath);
-                        if(outputFile.isFile()){
+                        System.out.println("\n" + Thread.currentThread().getName() + " PDF转换成功,文件位置:\n" + outFilePath);
+                        File outputFile = new File(outFilePath);
+                        if (outputFile.isFile()) {
                             f.setOutputFile(outputFile);
                             f.countDownLatch.countDown();
-                        }else{
-                            System.err.println(Thread.currentThread().getName() + " 转换文件异常,重新进入队列,文件位置:" + filePath);
-                            files.offer(f);
+                            //正常转换转入待清理队列
+                            garbageQueue.add(f);
+                        } else {
+                            if (f.getTryCount() < 3) {
+                                f.setTryCount(f.getTryCount() + 1);
+                                System.err.println("\n" + Thread.currentThread().getName() + " 转换文件异常,重新进入队列,文件位置:\n" + filePath);
+                                files.offer(f);
+                            } else {
+                                System.err.println("\n" + Thread.currentThread().getName() + " 3次尝试转换文件异常,已排除队列,文件位置:\n" + filePath);
+                                FileCopyUtils.copy(f.getInputFile(), new File(System.getenv("TEMP") + File.separatorChar + f.getInputFile().getName()));
+                            }
                         }
-                        long et=System.currentTimeMillis();
-                        System.out.println(Thread.currentThread().getName() +"转换耗时: "+(et-st));
+                        long et = System.currentTimeMillis();
+                        System.out.println(Thread.currentThread().getName() + " 转换耗时: " + (et - st) + "ms");
                     } else {
 //                        System.out.println(Thread.currentThread().getName() + " 队列中没有需要转换的文件");
-                        Thread.sleep(200);
+                        Thread.sleep(50);
                     }
                 } catch (Exception e) {
-                    System.err.println(Thread.currentThread().getName() + " 转换异常,重新进入队列,文件位置:" + filePath);
-                    if(f!=null){
+                    System.err.println("\n" + Thread.currentThread().getName() + " 转换异常,重新进入队列,文件位置:\n" + filePath);
+                    e.printStackTrace();
+                    if (f != null && f.getTryCount() < 3) {
+                        f.setTryCount(f.getTryCount() + 1);
                         files.offer(f);
                     }
                 }
             }
         }
-    }
-
-    public static ConcurrentLinkedQueue<ActiveXComponent> getAppQueue() {
-        return appQueue;
-    }
-
-    public static void setAppQueue(ConcurrentLinkedQueue<ActiveXComponent> appQueue) {
-        JacobMultiUtil.appQueue = appQueue;
-    }
-
-    public static ConcurrentLinkedQueue<ConvertedTarget> getFileQueue() {
-        return fileQueue;
-    }
-
-    public static void setFileQueue(ConcurrentLinkedQueue<ConvertedTarget> fileQueue) {
-        JacobMultiUtil.fileQueue = fileQueue;
     }
 }
