@@ -28,28 +28,6 @@ public class OfficeConverterController {
     @Value("${convertWord2PdfTempPath:D:/}")
     private String convertWord2PdfTempPath;
 
-    /**
-     * 将文件转成base64 字符串
-     * 文件用base64编码 方便网络传输
-     *
-     * @param path
-     * @return
-     * @throws Exception
-     */
-    public static String encodeBase64File(String path) throws Exception {
-        File file = new File(path);
-        ;
-        FileInputStream inputFile = new FileInputStream(file);
-        byte[] buffer = new byte[(int) file.length()];
-        inputFile.read(buffer);
-        inputFile.close();
-        return new BASE64Encoder().encode(buffer);
-    }
-
-    public static void main(String[] args) throws Exception {
-        System.out.println(encodeBase64File("C:\\Users\\pengh\\Desktop\\传票.docx"));
-    }
-
     @GetMapping("/stat")
     @ResponseBody
     public JSONObject wordFileToPdf() {
@@ -162,5 +140,23 @@ public class OfficeConverterController {
         } else {
             return remoteIp;
         }
+    }
+
+    /**
+     * 将文件转成base64 字符串
+     * 文件用base64编码 方便网络传输
+     *
+     * @param path
+     * @return
+     * @throws Exception
+     */
+    private String encodeBase64File(String path) throws Exception {
+        File file = new File(path);
+        ;
+        FileInputStream inputFile = new FileInputStream(file);
+        byte[] buffer = new byte[(int) file.length()];
+        inputFile.read(buffer);
+        inputFile.close();
+        return new BASE64Encoder().encode(buffer);
     }
 }

@@ -70,8 +70,8 @@ public class JacobMultiUtil {
         pdfMacro.put(MS_PPT, 32);
         pdfMacro.put(WPS_WPS, 17);
         pdfMacro.put(WPS_DPS, 32);
-        processNameMap.put(WPS_WPS, "wps.exe");
-        processNameMap.put(MS_DOC, "winword.exe");
+        processNameMap.put(WPS_WPS, "WPS.EXE");
+        processNameMap.put(MS_DOC, "WINWORD.EXE");
     }
 
     public static void init(String type) {
@@ -91,7 +91,7 @@ public class JacobMultiUtil {
         Set<String> result = new HashSet<>();
         try {
             String cmd = "tasklist /V /FO CSV /FI \"IMAGENAME eq " + processName + "\"";
-
+//            System.out.println(cmd);
             BufferedReader br = new BufferedReader(new InputStreamReader(Runtime.getRuntime().exec(cmd).getInputStream(), Charset.forName("GBK")));
             String line;
             while ((line = br.readLine()) != null) {
@@ -156,13 +156,11 @@ public class JacobMultiUtil {
                         Long stay = now - alive;
 //                        System.out.println(app + " 线程活跃值:" + stay);
                         if (stay > 5 * 60 * 1000) {
-                            System.out.println("发现僵死线程,活跃值:" + (now - alive) + "ms");
-
                             //队列中移除app
                             appQueue.remove(app);
-
                             String pid = appPidMap.get(app);
 
+                            System.out.println("发现僵死线程,pid:" + pid + ",活跃值:" + (now - alive) + "ms");
                             String cmd = "taskkill /F /PID " + pid;
                             Runtime.getRuntime().exec(cmd);
                             System.out.println("结束僵死线程完毕");
@@ -274,6 +272,7 @@ public class JacobMultiUtil {
 //        }
         //记录对应的winword进程
         Set<String> pids = getWinwordPid(processNameMap.get(type));
+//        System.out.println("type="+type+"pids="+pids);
         for (String pid : pids) {
             if (!appPidMap.containsValue(pid)) {
                 appPidMap.put(app, pid);
