@@ -4,12 +4,14 @@ import com.jacob.activeX.ActiveXComponent;
 import com.jacob.com.ComThread;
 import com.jacob.com.Dispatch;
 import com.jacob.com.Variant;
-import lombok.Getter;
-import lombok.Setter;
 import org.springframework.util.FileCopyUtils;
+import org.springframework.util.StringUtils;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -22,8 +24,6 @@ import java.util.concurrent.CountDownLatch;
  * @author Ryan.Peng
  * @date 2019年5月29日
  */
-@Getter
-@Setter
 public class JacobMultiUtil {
 
     /**
@@ -35,10 +35,11 @@ public class JacobMultiUtil {
     public final static String WPS_WPS = "KWPS.Application";
     public final static String WPS_ET = "KET.Application";
     public final static String WPS_DPS = "KWPP.Application";
-    private static Queue<ActiveXComponent> appQueue = new ConcurrentLinkedQueue<>();
-    private static ConcurrentMap<ActiveXComponent, Long> keepAliveMap = new ConcurrentHashMap<>();
-    private static Queue<ConvertedTarget> fileQueue = new ConcurrentLinkedQueue<>();
-    private static Queue<ConvertedTarget> garbageQueue = new ConcurrentLinkedQueue<>();
+    public static Queue<ActiveXComponent> appQueue = new ConcurrentLinkedQueue<>();
+    public static ConcurrentMap<ActiveXComponent, Long> keepAliveMap = new ConcurrentHashMap<>();
+    public static ConcurrentMap<ActiveXComponent, String> appPidMap = new ConcurrentHashMap<>();
+    public static Queue<ConvertedTarget> fileQueue = new ConcurrentLinkedQueue<>();
+    public static Queue<ConvertedTarget> garbageQueue = new ConcurrentLinkedQueue<>();
     /**
      * 映射对应文档的文档对象类型
      **/
@@ -47,6 +48,10 @@ public class JacobMultiUtil {
      * 转换成pdf文件对应的宏值的映射
      **/
     private static Map<String, Integer> pdfMacro;
+    /**
+     * office应用对应的进程值的映射
+     **/
+    private static Map<String, String> processNameMap;
 
     /**
      * 初始化映射关系
@@ -54,50 +59,69 @@ public class JacobMultiUtil {
     static {
         documentMap = new HashMap<>();
         pdfMacro = new HashMap<>();
-        documentMap.put("Word.Application", "Documents");
-        documentMap.put("Excel.Application", "Workbooks");
-        documentMap.put("Powerpoint.Application", "Presentations");
-        documentMap.put("KWPS.Application", "Documents");
-        documentMap.put("KET.Application", "Workbooks");
-        documentMap.put("KWPP.Application", "Presentations");
-        pdfMacro.put("Word.Application", 17);
-        pdfMacro.put("Powerpoint.Application", 32);
-        pdfMacro.put("KWPS.Application", 17);
-        pdfMacro.put("KWPP.Application", 32);
+        processNameMap = new HashMap<>();
+        documentMap.put(MS_DOC, "Documents");
+        documentMap.put(MS_EXCEL, "Workbooks");
+        documentMap.put(MS_PPT, "Presentations");
+        documentMap.put(WPS_WPS, "Documents");
+        documentMap.put(WPS_ET, "Workbooks");
+        documentMap.put(WPS_DPS, "Presentations");
+        pdfMacro.put(MS_DOC, 17);
+        pdfMacro.put(MS_PPT, 32);
+        pdfMacro.put(WPS_WPS, 17);
+        pdfMacro.put(WPS_DPS, 32);
+        processNameMap.put(WPS_WPS, "wps.exe");
+        processNameMap.put(MS_DOC, "winword.exe");
     }
 
     public static void init(String type) {
         try {
-            createAppThread(type);
-            keepAliveThread(type);
-            garbageThread();
+            if (appQueue.isEmpty()) {
+                createAppThread(type);
+                keepAliveThread(type);
+                garbageThread();
+            }
         } catch (Exception e) {
             System.err.println("初始化Jacob进程错误");
             e.printStackTrace();
         }
     }
 
-    public static void createAppThread(String type) throws Exception {
-        if (appQueue.isEmpty()) {
-            System.out.println("正在初始化转换程序...");
-            System.out.println("结束操作系统Offince进程");
-            String cmd = "taskkill /F /IM WPS.EXE";
-            String cmd2 = "taskkill /F /IM WINWORD.EXE";
-            Runtime.getRuntime().exec(cmd);
-            Runtime.getRuntime().exec(cmd2);
-            Thread.sleep(200);
-            int processorNum = Runtime.getRuntime().availableProcessors();
-            System.out.println("启用多线程支持");
-            ComThread.InitMTA();
-            for (int i = 0; i < processorNum; i++) {
-                new Thread(new JacobMultiUtil.JacobThread(fileQueue, appQueue, type), "Converter - " + (i + 1)).start();
-                System.out.println("创建线程:" + "Converter - " + (i + 1));
+    public static Set<String> getWinwordPid(String processName) {
+        Set<String> result = new HashSet<>();
+        try {
+            String cmd = "tasklist /V /FO CSV /FI \"IMAGENAME eq " + processName + "\"";
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(Runtime.getRuntime().exec(cmd).getInputStream(), Charset.forName("GBK")));
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line != null && line.split(",")[0].contains(processName)) {
+                    result.add(StringUtils.replace(line.split(",")[1], "\"", ""));
+                }
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return result;
+    }
+
+    public static void createAppThread(String type) throws Exception {
+        System.out.println("正在初始化转换程序...");
+        System.out.println("结束操作系统Offince进程");
+        String cmd = "taskkill /F /IM " + processNameMap.get(type);
+        Runtime.getRuntime().exec(cmd);
+        Thread.sleep(200);
+        int processorNum = Runtime.getRuntime().availableProcessors();
+        System.out.println("启用多线程支持");
+        ComThread.InitMTA();
+        for (int i = 0; i < processorNum; i++) {
+            new Thread(new JacobMultiUtil.JacobThread(fileQueue, appQueue, type), "Converter - " + (i + 1)).start();
+            System.out.println("创建线程:" + "Converter - " + (i + 1));
         }
     }
 
     public static void garbageThread() {
-        System.out.println("创建临时文件清理进程");
+        System.out.println("创建临时文件清理线程");
         new Thread(() -> {
             while (true) {
                 if (!garbageQueue.isEmpty()) {
@@ -107,6 +131,7 @@ public class JacobMultiUtil {
                         ct.getOutputFile().delete();
                         i++;
                     }
+                    garbageQueue.clear();
                     System.out.println("本次清理了临时文件个数:" + 2 * i);
                 }
                 try {
@@ -120,25 +145,33 @@ public class JacobMultiUtil {
 
 
     public static void keepAliveThread(String type) {
-        System.out.println("创建keepAlive进程");
+        System.out.println("创建keepAlive线程");
         new Thread(() -> {
             while (true) {
                 try {
+                    System.out.println("\n线程心跳检测");
                     Long now = System.currentTimeMillis();
                     for (ActiveXComponent app : keepAliveMap.keySet()) {
                         Long alive = keepAliveMap.get(app);
-                        if (now - alive > 5 * 60 * 1000) {
-                            System.out.println("发现僵死进程,进程上次活跃时间:" + (now - alive) + "ms");
+                        Long stay = now - alive;
+//                        System.out.println(app + " 线程活跃值:" + stay);
+                        if (stay > 5 * 60 * 1000) {
+                            System.out.println("发现僵死线程,活跃值:" + (now - alive) + "ms");
+
                             //队列中移除app
                             appQueue.remove(app);
 
-                            if (app != null) {
-                                app.invoke("Quit", new Variant[]{});
-                                System.out.println("结束僵死进程完毕");
-                                app = null;
-                                new Thread(new JacobThread(fileQueue, appQueue, type)).start();
-                                System.out.println("创建新进程替换僵死进程");
-                            }
+                            String pid = appPidMap.get(app);
+
+                            String cmd = "taskkill /F /PID " + pid;
+                            Runtime.getRuntime().exec(cmd);
+                            System.out.println("结束僵死线程完毕");
+
+                            appPidMap.remove(app);
+
+                            new Thread(new JacobThread(fileQueue, appQueue, type)).start();
+                            System.out.println("创建新线程替换僵死线程");
+
                         }
                     }
                     Thread.sleep(30 * 1000);
@@ -158,10 +191,10 @@ public class JacobMultiUtil {
                 }
             }
             ComThread.Release();
-            String cmd = "taskkill /F /IM WPS.EXE";
-            String cmd2 = "taskkill /F /IM WINWORD.EXE";
-            Runtime.getRuntime().exec(cmd);
-            Runtime.getRuntime().exec(cmd2);
+            for (String processName : processNameMap.values()) {
+                String cmd = "taskkill /F /IM " + processName;
+                Runtime.getRuntime().exec(cmd);
+            }
         } catch (IOException e) {
             System.err.println("清理Jacob进程错误");
             e.printStackTrace();
@@ -169,14 +202,19 @@ public class JacobMultiUtil {
     }
 
     public static void main(String[] args) throws Exception {
-        JacobMultiUtil.init(WPS_WPS);
-        File templateDir = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.doc");
-        File templateDir2 = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.pdf");
-//        List<File> files = listFiles(templateDir).stream().filter(file -> file.getName().endsWith(".doc")).collect(Collectors.toList());
-        List<ConvertedTarget> convertedTargets = new ArrayList<>();
-        ConvertedTarget ct = new ConvertedTarget(templateDir, templateDir2);
-        convertedTargets.add(ct);
-        JacobMultiUtil.fileQueue.addAll(convertedTargets);
+//        JacobMultiUtil.init(WPS_WPS);
+//        File templateDir = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.doc");
+//        File templateDir2 = new File("C:\\Users\\pengh\\Desktop\\2e39a731-7586-4263-b626-51b6e8bbabd4.pdf");
+////        List<File> files = listFiles(templateDir).stream().filter(file -> file.getName().endsWith(".doc")).collect(Collectors.toList());
+//        List<ConvertedTarget> convertedTargets = new ArrayList<>();
+//        ConvertedTarget ct = new ConvertedTarget(templateDir, templateDir2);
+//        convertedTargets.add(ct);
+//        JacobMultiUtil.fileQueue.addAll(convertedTargets);
+
+
+        for (String s : getWinwordPid("Maxthon.exe")) {
+            System.out.println(s);
+        }
     }
 
     /**
@@ -226,20 +264,23 @@ public class JacobMultiUtil {
         return result;
     }
 
-    public static Queue<ActiveXComponent> getAppQueue() {
-        return appQueue;
-    }
 
-    public static void setAppQueue(Queue<ActiveXComponent> appQueue) {
-        JacobMultiUtil.appQueue = appQueue;
-    }
-
-    public static Queue<ConvertedTarget> getFileQueue() {
-        return fileQueue;
-    }
-
-    public static void setFileQueue(Queue<ConvertedTarget> fileQueue) {
-        JacobMultiUtil.fileQueue = fileQueue;
+    public static synchronized ActiveXComponent createApp(String type) {
+        ActiveXComponent app = new ActiveXComponent(type);
+//        try {
+//            Thread.sleep(200);
+//        } catch (InterruptedException e) {
+//            e.printStackTrace();
+//        }
+        //记录对应的winword进程
+        Set<String> pids = getWinwordPid(processNameMap.get(type));
+        for (String pid : pids) {
+            if (!appPidMap.containsValue(pid)) {
+                appPidMap.put(app, pid);
+                System.out.println("记录window进程映射,key=" + app + ",value=" + pid);
+            }
+        }
+        return app;
     }
 
     public static class ConvertedTarget {
@@ -335,10 +376,10 @@ public class JacobMultiUtil {
         public void run() {
             Dispatch documents;
             String filePath = null;
-            ActiveXComponent app = new ActiveXComponent(type);
+            ActiveXComponent app = createApp(type);
+            appPool.offer(app);
             app.setProperty("Visible", new Variant(false));
             documents = app.getProperty(documentMap.get(type)).toDispatch();
-            appPool.offer(app);
             while (true) {
                 ConvertedTarget f = files.poll();
                 //更新进程活跃状态

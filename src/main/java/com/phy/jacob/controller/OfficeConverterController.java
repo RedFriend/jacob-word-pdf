@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class OfficeConverterController {
 
-    @Value("${convertWord2PdfTempPath:c:/}")
+    @Value("${convertWord2PdfTempPath:D:/}")
     private String convertWord2PdfTempPath;
 
     /**
@@ -47,7 +47,18 @@ public class OfficeConverterController {
     }
 
     public static void main(String[] args) throws Exception {
-        System.out.println(encodeBase64File("C:\\Users\\pengh\\Desktop\\test\\v9 (1).doc"));
+        System.out.println(encodeBase64File("C:\\Users\\pengh\\Desktop\\传票.docx"));
+    }
+
+    @GetMapping("/stat")
+    @ResponseBody
+    public JSONObject wordFileToPdf() {
+        JSONObject o = new JSONObject();
+        o.put("fileQueue", JacobMultiUtil.fileQueue);
+        o.put("appPidMap", JacobMultiUtil.appPidMap);
+        o.put("garbageQueue", JacobMultiUtil.garbageQueue);
+        o.put("keepAliveMap", JacobMultiUtil.keepAliveMap);
+        return o;
     }
 
     @PostMapping("/wordBase64ToPdf")
@@ -57,7 +68,7 @@ public class OfficeConverterController {
         String content = jsonObj.getString("content");
         long st = System.currentTimeMillis();
         System.out.println("\n=====调用转换PDF服务开始:" + getRemoteIp(request));
-        log.info("\n入参fileName:{}",fileName);
+        log.info("\n入参fileName:{}", fileName);
         try {
             File inputFile = new File(convertWord2PdfTempPath + File.separatorChar + UUID.randomUUID().toString() + fileName.substring(fileName.lastIndexOf(".")));
             File outputFile = new File(convertWord2PdfTempPath + File.separatorChar + UUID.randomUUID().toString() + ".pdf");
@@ -70,13 +81,13 @@ public class OfficeConverterController {
             // 将文件转换为pdf
             JacobMultiUtil.ConvertedTarget ct = new JacobMultiUtil.ConvertedTarget(inputFile, outputFile);
             JacobMultiUtil.init(JacobMultiUtil.MS_DOC);
-            JacobMultiUtil.getFileQueue().add(ct);
+            JacobMultiUtil.fileQueue.add(ct);
             ct.getCountDownLatch().await(60, TimeUnit.SECONDS);
 
             // 再将pdf转成Base64
             content = encodeBase64File(ct.getOutputFile().getAbsolutePath());
 
-            System.out.println(String.format("\n=====调用转换PDF服务结束,耗时:%s ms",(System.currentTimeMillis() - st)));
+            System.out.println(String.format("\n=====调用转换PDF服务结束,耗时:%s ms", (System.currentTimeMillis() - st)));
             return content;
         } catch (Exception e) {
             System.err.println("文件转换异常");
@@ -96,7 +107,7 @@ public class OfficeConverterController {
             for (JSONObject jsonObject : jsonObjects) {
                 String fileName = jsonObject.getString("fileName");
                 String content = jsonObject.getString("content");
-                log.info("\n入参fileName:"+fileName);
+                log.info("\n入参fileName:" + fileName);
                 File inputFile = new File(convertWord2PdfTempPath + File.separatorChar + UUID.randomUUID().toString() + fileName.substring(fileName.lastIndexOf(".")));
                 File outputFile = new File(convertWord2PdfTempPath + File.separatorChar + UUID.randomUUID().toString() + ".pdf");
 
@@ -109,7 +120,7 @@ public class OfficeConverterController {
             }
 
             //将文件放入转换队列
-            JacobMultiUtil.getFileQueue().addAll(list);
+            JacobMultiUtil.fileQueue.addAll(list);
             //等待最后一个转换完毕
             list.get(list.size() - 1).getCountDownLatch().await(60, TimeUnit.SECONDS);
             for (int i = 0; i < list.size(); i++) {
@@ -121,7 +132,7 @@ public class OfficeConverterController {
                 jsonObjects[i].put("content", encodeBase64File(ct.getOutputFile().getAbsolutePath()));
             }
 
-            System.out.println(String.format("\n=====调用转换PDF服务结束,本次共转换文件数:%s,耗时:%s ms",jsonObjects.length,(System.currentTimeMillis() - st)));
+            System.out.println(String.format("\n=====调用转换PDF服务结束,本次共转换文件数:%s,耗时:%s ms", jsonObjects.length, (System.currentTimeMillis() - st)));
             return jsonObjects;
         } catch (Exception e) {
             System.err.println("文件转换位置异常");
@@ -130,6 +141,12 @@ public class OfficeConverterController {
         }
     }
 
+    /**
+     * 获取ip地址
+     *
+     * @param request
+     * @return
+     */
     private String getRemoteIp(HttpServletRequest request) {
         if (ObjectUtils.isEmpty(request)) {
             return null;
