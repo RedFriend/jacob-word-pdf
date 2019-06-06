@@ -35,11 +35,11 @@ public class JacobMultiUtil {
     public final static String WPS_WPS = "KWPS.Application";
     public final static String WPS_ET = "KET.Application";
     public final static String WPS_DPS = "KWPP.Application";
-    public static Queue<ActiveXComponent> appQueue = new ConcurrentLinkedQueue<>();
-    public static ConcurrentMap<ActiveXComponent, Long> keepAliveMap = new ConcurrentHashMap<>();
+    public static ConcurrentMap<ActiveXComponent, String> appMap = new ConcurrentHashMap<>();
     public static ConcurrentMap<ActiveXComponent, String> appPidMap = new ConcurrentHashMap<>();
+    public static ConcurrentMap<ActiveXComponent, Long> keepAliveMap = new ConcurrentHashMap<>();
     public static Queue<ConvertedTarget> fileQueue = new ConcurrentLinkedQueue<>();
-    public static Queue<ConvertedTarget> garbageQueue = new ConcurrentLinkedQueue<>();
+    public static Queue<ConvertedTarget> garbageFileQueue = new ConcurrentLinkedQueue<>();
     /**
      * 映射对应文档的文档对象类型
      **/
@@ -76,7 +76,7 @@ public class JacobMultiUtil {
 
     public static void init(String type) {
         try {
-            if (appQueue.isEmpty()) {
+            if (appMap.isEmpty()) {
                 createAppThread(type);
                 keepAliveThread(type);
                 garbageThread();
@@ -115,7 +115,7 @@ public class JacobMultiUtil {
         System.out.println("启用多线程支持");
         ComThread.InitMTA();
         for (int i = 0; i < processorNum; i++) {
-            new Thread(new JacobMultiUtil.JacobThread(fileQueue, appQueue, type), "Converter - " + (i + 1)).start();
+            new Thread(new JacobMultiUtil.JacobThread(fileQueue, appMap, type), "Converter - " + (i + 1)).start();
             System.out.println("创建线程:" + "Converter - " + (i + 1));
         }
     }
@@ -124,14 +124,14 @@ public class JacobMultiUtil {
         System.out.println("创建临时文件清理线程");
         new Thread(() -> {
             while (true) {
-                if (!garbageQueue.isEmpty()) {
+                if (!garbageFileQueue.isEmpty()) {
                     int i = 1;
-                    for (ConvertedTarget ct : garbageQueue) {
+                    while (garbageFileQueue.iterator().hasNext()) {
+                        ConvertedTarget ct = garbageFileQueue.poll();
                         ct.getInputFile().delete();
                         ct.getOutputFile().delete();
                         i++;
                     }
-                    garbageQueue.clear();
                     System.out.println("本次清理了临时文件个数:" + 2 * i);
                 }
                 try {
@@ -140,7 +140,7 @@ public class JacobMultiUtil {
                     e.printStackTrace();
                 }
             }
-        }).start();
+        }, "garbageThread").start();
     }
 
 
@@ -149,25 +149,26 @@ public class JacobMultiUtil {
         new Thread(() -> {
             while (true) {
                 try {
-                    System.out.println("\n线程心跳检测");
+//                    System.out.println("\n线程心跳检测");
                     Long now = System.currentTimeMillis();
                     for (ActiveXComponent app : keepAliveMap.keySet()) {
                         Long alive = keepAliveMap.get(app);
                         Long stay = now - alive;
 //                        System.out.println(app + " 线程活跃值:" + stay);
                         if (stay > 5 * 60 * 1000) {
-                            //队列中移除app
-                            appQueue.remove(app);
                             String pid = appPidMap.get(app);
 
                             System.out.println("发现僵死线程,pid:" + pid + ",活跃值:" + (now - alive) + "ms");
                             String cmd = "taskkill /F /PID " + pid;
                             Runtime.getRuntime().exec(cmd);
+                            System.out.println("结束winword.exe进程完毕");
+                            killThreadByName(appMap.get(app));
                             System.out.println("结束僵死线程完毕");
-
+                            new Thread(new JacobThread(fileQueue, appMap, type), "Converter - " + app.hashCode()).start();
+                            //队列中移除app
+                            appMap.remove(app);
                             appPidMap.remove(app);
-
-                            new Thread(new JacobThread(fileQueue, appQueue, type)).start();
+                            app = null;
                             System.out.println("创建新线程替换僵死线程");
 
                         }
@@ -177,12 +178,12 @@ public class JacobMultiUtil {
                     e.printStackTrace();
                 }
             }
-        }).start();
+        }, "keepAliveThread").start();
     }
 
     public static void quit() {
         try {
-            for (ActiveXComponent app : appQueue) {
+            for (ActiveXComponent app : appMap.keySet()) {
                 if (app != null) {
                     app.invoke("Quit", new Variant[]{});
                     app = null;
@@ -197,6 +198,35 @@ public class JacobMultiUtil {
             System.err.println("清理Jacob进程错误");
             e.printStackTrace();
         }
+    }
+
+    public static boolean killThreadByName(String name) {
+        Thread[] threads = findAllThread();
+        for (Thread thread : threads) {
+            if (thread.getName().equalsIgnoreCase(name)) {
+                thread.interrupt();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Thread[] findAllThread() {
+        ThreadGroup currentGroup = Thread.currentThread().getThreadGroup();
+        while (currentGroup.getParent() != null) {
+            // 返回此线程组的父线程组
+            currentGroup = currentGroup.getParent();
+        }
+        //此线程组中活动线程的估计数
+        int noThreads = currentGroup.activeCount();
+        Thread[] lstThreads = new Thread[noThreads];
+        //把对此线程组中的所有活动子组的引用复制到指定数组中。
+        currentGroup.enumerate(lstThreads);
+
+//        for (Thread thread : lstThreads) {
+//            System.out.println("线程数量：" + noThreads + " 线程id：" + thread.getId() + " 线程名称：" + thread.getName() + " 线程状态：" + thread.getState());
+//        }
+        return lstThreads;
     }
 
     public static void main(String[] args) throws Exception {
@@ -361,13 +391,13 @@ public class JacobMultiUtil {
      * Jacob线程类,加速处理
      */
     public static class JacobThread implements Runnable {
-        private Queue<ActiveXComponent> appPool;
+        private ConcurrentMap<ActiveXComponent, String> appQueueMap;
         private Queue<ConvertedTarget> files;
         private String type;
 
-        JacobThread(Queue<ConvertedTarget> files, Queue<ActiveXComponent> appPool, String type) {
+        JacobThread(Queue<ConvertedTarget> files, ConcurrentMap<ActiveXComponent, String> appQueueMap, String type) {
             this.files = files;
-            this.appPool = appPool;
+            this.appQueueMap = appQueueMap;
             this.type = type;
         }
 
@@ -376,7 +406,7 @@ public class JacobMultiUtil {
             Dispatch documents;
             String filePath = null;
             ActiveXComponent app = createApp(type);
-            appPool.offer(app);
+            appQueueMap.put(app, Thread.currentThread().getName());
             app.setProperty("Visible", new Variant(false));
             documents = app.getProperty(documentMap.get(type)).toDispatch();
             while (true) {
@@ -397,7 +427,7 @@ public class JacobMultiUtil {
                             f.setOutputFile(outputFile);
                             f.countDownLatch.countDown();
                             //正常转换转入待清理队列
-                            garbageQueue.add(f);
+                            garbageFileQueue.add(f);
                         } else {
                             if (f.getTryCount() < 3) {
                                 f.setTryCount(f.getTryCount() + 1);

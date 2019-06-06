@@ -1,5 +1,6 @@
 package com.phy.jacob.controller;
 
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.phy.jacob.util.JacobMultiUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -31,11 +32,21 @@ public class OfficeConverterController {
     @GetMapping("/stat")
     @ResponseBody
     public JSONObject wordFileToPdf() {
-        JSONObject o = new JSONObject();
+        JSONObject o = new JSONObject(true);
         o.put("fileQueue", JacobMultiUtil.fileQueue);
         o.put("appPidMap", JacobMultiUtil.appPidMap);
-        o.put("garbageQueue", JacobMultiUtil.garbageQueue);
+        o.put("appQueue", JacobMultiUtil.appMap);
+        o.put("garbageFileQueue", JacobMultiUtil.garbageFileQueue);
         o.put("keepAliveMap", JacobMultiUtil.keepAliveMap);
+        JSONArray array=new JSONArray();
+        for (Thread thread : JacobMultiUtil.findAllThread()) {
+            JSONObject object=new JSONObject();
+            object.put("id",thread.getId());
+            object.put("name",thread.getName());
+            object.put("state",thread.getState());
+            array.add(object);
+        }
+        o.put("thread", array);
         return o;
     }
 
