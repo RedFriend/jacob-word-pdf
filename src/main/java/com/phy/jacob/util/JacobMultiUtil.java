@@ -1,5 +1,6 @@
 package com.phy.jacob.util;
 
+import com.alibaba.fastjson.JSON;
 import com.jacob.activeX.ActiveXComponent;
 import com.jacob.com.ComThread;
 import com.jacob.com.Dispatch;
@@ -74,7 +75,7 @@ public class JacobMultiUtil {
         processNameMap.put(MS_DOC, "WINWORD.EXE");
     }
 
-    public static void init(String type) {
+    public synchronized static void init(String type) {
         try {
             if (appMap.isEmpty()) {
                 createAppThread(type);
@@ -135,7 +136,7 @@ public class JacobMultiUtil {
                     System.out.println("本次清理了临时文件个数:" + 2 * i);
                 }
                 try {
-                    Thread.sleep(30 * 60 * 1000);
+                    Thread.sleep(6 * 60 * 60 * 1000);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -155,7 +156,7 @@ public class JacobMultiUtil {
                         Long alive = keepAliveMap.get(app);
                         Long stay = now - alive;
 //                        System.out.println(app + " 线程活跃值:" + stay);
-                        if (stay > 5 * 60 * 1000) {
+                        if (stay > 2 * 60 * 1000) {
                             String pid = appPidMap.get(app);
 
                             System.out.println("发现僵死线程,pid:" + pid + ",活跃值:" + (now - alive) + "ms");
@@ -168,6 +169,7 @@ public class JacobMultiUtil {
                             //队列中移除app
                             appMap.remove(app);
                             appPidMap.remove(app);
+                            keepAliveMap.remove(app);
                             app = null;
                             System.out.println("创建新线程替换僵死线程");
 
@@ -205,6 +207,7 @@ public class JacobMultiUtil {
         for (Thread thread : threads) {
             if (thread.getName().equalsIgnoreCase(name)) {
                 thread.interrupt();
+                System.out.println("调用interrupt中断线程:" + name);
                 return true;
             }
         }
@@ -415,41 +418,53 @@ public class JacobMultiUtil {
                 keepAliveMap.put(app, System.currentTimeMillis());
                 try {
                     if (f != null) {
-                        long st = System.currentTimeMillis();
-                        filePath = f.getInputFile().getAbsolutePath();
-                        Dispatch document = Dispatch.call(documents, "Open", filePath).toDispatch();
-                        String outFilePath = filePath.substring(0, filePath.lastIndexOf(".")) + ".pdf";
-                        Dispatch.call(document, "SaveAs", outFilePath, new Variant(pdfMacro.get(type)));
-                        Dispatch.call(document, "Close", false);
-                        System.out.println("\n" + Thread.currentThread().getName() + " PDF转换成功,文件位置:\n" + outFilePath);
-                        File outputFile = new File(outFilePath);
-                        if (outputFile.isFile()) {
-                            f.setOutputFile(outputFile);
-                            f.countDownLatch.countDown();
-                            //正常转换转入待清理队列
-                            garbageFileQueue.add(f);
-                        } else {
-                            if (f.getTryCount() < 3) {
-                                f.setTryCount(f.getTryCount() + 1);
-                                System.err.println("\n" + Thread.currentThread().getName() + " 转换文件异常,重新进入队列,文件位置:\n" + filePath);
-                                files.offer(f);
+                        if (f.getInputFile().isFile()) {
+                            long st = System.currentTimeMillis();
+                            filePath = f.getInputFile().getAbsolutePath();
+                            Dispatch document = Dispatch.call(documents, "Open", filePath).toDispatch();
+                            String outFilePath = filePath.substring(0, filePath.lastIndexOf(".")) + ".pdf";
+                            Dispatch.call(document, "SaveAs", outFilePath, new Variant(pdfMacro.get(type)));
+                            Dispatch.call(document, "Close", false);
+                            System.out.println(Thread.currentThread().getName() + " PDF转换成功,文件位置:\n" + outFilePath);
+                            File outputFile = new File(outFilePath);
+                            if (outputFile.isFile()) {
+                                f.setOutputFile(outputFile);
+                                f.countDownLatch.countDown();
+                                //正常转换转入待清理队列
+                                garbageFileQueue.add(f);
                             } else {
-                                System.err.println("\n" + Thread.currentThread().getName() + " 3次尝试转换文件异常,已排除队列,文件位置:\n" + filePath);
-                                FileCopyUtils.copy(f.getInputFile(), new File(System.getenv("TEMP") + File.separatorChar + f.getInputFile().getName()));
+                                if (f.getTryCount() < 3) {
+                                    f.setTryCount(f.getTryCount() + 1);
+                                    System.err.println("\n" + Thread.currentThread().getName() + " 转换文件异常,重新进入队列,文件位置:\n" + filePath);
+                                    files.offer(f);
+                                } else {
+                                    System.err.println("\n" + Thread.currentThread().getName() + " 3次尝试转换文件异常,已排除队列,文件位置:\n" + filePath);
+                                    FileCopyUtils.copy(f.getInputFile(), new File(System.getenv("TEMP") + File.separatorChar + f.getInputFile().getName()));
+                                }
                             }
+                            long et = System.currentTimeMillis();
+                            System.out.println(Thread.currentThread().getName() + " 转换耗时: " + (et - st) + "ms");
+                        } else {
+                            System.err.println(Thread.currentThread().getName() + " 获取到的inputFile不存在: " + JSON.toJSONString(f));
                         }
-                        long et = System.currentTimeMillis();
-                        System.out.println(Thread.currentThread().getName() + " 转换耗时: " + (et - st) + "ms");
                     } else {
 //                        System.out.println(Thread.currentThread().getName() + " 队列中没有需要转换的文件");
                         Thread.sleep(50);
                     }
+                } catch (InterruptedException ie) {
+                    System.err.println(Thread.currentThread().getName() + " 收到中断信号");
+                    break;
                 } catch (Exception e) {
                     System.err.println("\n" + Thread.currentThread().getName() + " 转换异常,重新进入队列,文件位置:\n" + filePath);
                     e.printStackTrace();
                     if (f != null && f.getTryCount() < 3) {
                         f.setTryCount(f.getTryCount() + 1);
                         files.offer(f);
+                    }
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException e1) {
+                        break;
                     }
                 }
             }

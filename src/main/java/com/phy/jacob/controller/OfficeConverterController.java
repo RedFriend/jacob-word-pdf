@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -36,8 +37,8 @@ public class OfficeConverterController {
         o.put("fileQueue", JacobMultiUtil.fileQueue);
         o.put("appPidMap", JacobMultiUtil.appPidMap);
         o.put("appQueue", JacobMultiUtil.appMap);
-        o.put("garbageFileQueue", JacobMultiUtil.garbageFileQueue);
         o.put("keepAliveMap", JacobMultiUtil.keepAliveMap);
+        o.put("garbageFileQueue", JacobMultiUtil.garbageFileQueue);
         JSONArray array=new JSONArray();
         for (Thread thread : JacobMultiUtil.findAllThread()) {
             JSONObject object=new JSONObject();
@@ -48,6 +49,12 @@ public class OfficeConverterController {
         }
         o.put("thread", array);
         return o;
+    }
+    @GetMapping("/kill")
+    @ResponseBody
+    public Date killThread(String name) {
+            JacobMultiUtil.killThreadByName(name);
+            return new Date();
     }
 
     @PostMapping("/wordBase64ToPdf")
@@ -76,7 +83,7 @@ public class OfficeConverterController {
             // 再将pdf转成Base64
             content = encodeBase64File(ct.getOutputFile().getAbsolutePath());
 
-            System.out.println(String.format("\n=====调用转换PDF服务结束,耗时:%s ms", (System.currentTimeMillis() - st)));
+            System.out.println(String.format("=====调用转换PDF服务结束,耗时:%s ms", (System.currentTimeMillis() - st)));
             return content;
         } catch (Exception e) {
             System.err.println("文件转换异常");
@@ -161,7 +168,7 @@ public class OfficeConverterController {
      * @return
      * @throws Exception
      */
-    private String encodeBase64File(String path) throws Exception {
+    public static String encodeBase64File(String path) throws Exception {
         File file = new File(path);
         ;
         FileInputStream inputFile = new FileInputStream(file);
@@ -169,5 +176,10 @@ public class OfficeConverterController {
         inputFile.read(buffer);
         inputFile.close();
         return new BASE64Encoder().encode(buffer);
+    }
+
+    public static void main(String[] args) throws Exception{
+//        System.out.println(encodeBase64File("C:\\Users\\pengh\\Desktop\\v9.doc"));
+        System.out.println(encodeBase64File("C:\\Users\\pengh\\Desktop\\v9_1.doc"));
     }
 }
