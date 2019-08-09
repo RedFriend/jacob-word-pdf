@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class OfficeConverterController {
 
-    @Value("${convertWord2PdfTempPath:D:/}")
+    @Value("${convertWord2PdfTempPath:#{systemProperties.java.io.tmpdir}}")
     private String convertWord2PdfTempPath;
 
     @GetMapping("/stat")

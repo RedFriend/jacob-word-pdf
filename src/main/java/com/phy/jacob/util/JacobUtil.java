@@ -162,15 +162,26 @@ public class JacobUtil {
         this.visible = visible;
     }
     public static void main(String[] args) {
-        File templateDir=new File("Z:\\template");
-        List<File> files= listFiles(templateDir);
-        for (File f : files) {
-            JacobUtil jacob = new JacobUtil();
-            jacob.open(f.getAbsolutePath(), JacobUtil.WPS_WPS);
-            //默认同路径 也可自定义
-            jacob.toPDF();
-            jacob.close();
-        }
+//        File templateDir=new File("Z:\\template");
+//        List<File> files= listFiles(templateDir);
+//        for (File f : files) {
+//            JacobUtil jacob = new JacobUtil();
+//            jacob.open(f.getAbsolutePath(), JacobUtil.WPS_WPS);
+//            //默认同路径 也可自定义
+//            jacob.toPDF();
+//            jacob.close();
+//        }
+
+        ActiveXComponent app = new ActiveXComponent("Word.Application");
+//        app.setProperty("Visible", new Variant(false));
+        app.setProperty("Visible", new Variant(true));
+        Dispatch documents = app.getProperty("Documents").toDispatch();
+
+        Dispatch document = Dispatch.call(documents, "Open", "C:\\Users\\pengh\\Desktop\\v9.doc").toDispatch();
+        System.out.println(app.invoke("Version", new Variant[]{}));
+        Dispatch.call(document, "Close", false);
+        app.invoke("Quit", new Variant[]{});
+        System.out.println();
     }
 
     public static List<File> listFiles(File directory) {
